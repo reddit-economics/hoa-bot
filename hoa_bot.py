@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-from datetime import datetime, date, timedelta
+import configparser
+from datetime import date, timedelta
 import copy
 import praw
 import yaml
@@ -52,7 +53,17 @@ https://www.reddit.com/message/compose?to=%2Fr%2Fbadeconomics
 
 
 def main():
-    reddit = praw.Reddit()
+    config = configparser.ConfigParser()
+    config.read('settings.conf')
+
+    reddit = praw.Reddit(
+        client_id=config['reddit']['client_id'],
+        client_secret=config['reddit']['client_secret'],
+        username=config['reddit']['username'],
+        password=config['reddit']['password'],
+        user_agent='BadEconomics Zoning Bot'
+    )
+
     badeconomics = reddit.subreddit('badeconomics')
 
     wiki_zoning = badeconomics.wiki['zoning_whitelist']
@@ -98,12 +109,12 @@ def main():
             if contributor not in sub_contributors:
                 try:
                     badeconomics.contributor.add(user)
-                except:  # banned
+                except Exception:  # banned
                     continue
 
                 if contributor not in zoning['whitelist']:
                     print("Granting /u/{} a permit."
-                        .format(contributor, delta))
+                          .format(contributor, delta))
                     expires = date.today() + timedelta(PERMIT_LENGTH)
                     user.message(
                         PM_GRANTED_SUBJECT,
@@ -115,7 +126,6 @@ def main():
         if contributor not in sub_contributors:
             badeconomics.contributor.add(user)
 
-
     # Reload + atomic edit
     wiki_zoning = badeconomics.wiki['zoning_whitelist']
     zoning = yaml.safe_load(wiki_zoning.content_md)
@@ -125,6 +135,7 @@ def main():
         zoning_new['contributors'].pop(u)
     if zoning != zoning_new:
         wiki_zoning.edit(yaml.safe_dump(zoning_new))
+
 
 if __name__ == '__main__':
     main()
