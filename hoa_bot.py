@@ -97,7 +97,7 @@ def main():
             if contributor in sub_contributors:
                 badeconomics.contributor.remove(user)
                 user.message(
-                    PM_EXPIRE_SUBJECT,
+                    PM_EXPIRE_SUBJECT.format(user=contributor),
                     PM_EXPIRE_TEXT.format(user=contributor))
             to_delete.append(contributor)
         else:
@@ -112,7 +112,7 @@ def main():
                           .format(contributor, delta))
                     expires = date.today() + timedelta(PERMIT_LENGTH)
                     user.message(
-                        PM_GRANTED_SUBJECT,
+                        PM_GRANTED_SUBJECT.format(user=contributor),
                         PM_GRANTED_TEXT.format(user=contributor,
                                                expires=expires))
 
