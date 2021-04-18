@@ -8,46 +8,41 @@ import yaml
 
 PERMIT_LENGTH = 180
 
-PM_EXPIRE_SUBJECT = "Your zoning permit has expired"
-PM_EXPIRE_TEXT = """Hi {user},
+PM_EXPIRE_SUBJECT = "Your time has expired"
+PM_EXPIRE_TEXT = """The Honorable {user},
 
-We noticed that you haven't posted a RI, a policy proposal or a good
+The chair has noticed that you haven't posted a RI, a policy proposal or a good
 contribution in the Reddit Economics Network in the last 6 months.
 
-As a result, and in order to preserve the character of our neighborhood, your
-zoning permit has expired. You can no longer post in the Mixed Use Development
-sticky.
+As a result, you must yield your remaining time, and let debate continue amongst more established members of this chamber.
 
-You can find more details about our Exclusionary Zoning policy here:
-https://www.reddit.com/r/badeconomics/comments/cccui4/exclusionary_zoning_is_coming_to_rbadeconomics/
+You can find more details about parliamentary procedure here:
+https://www.reddit.com/r/badeconomics/comments/mtks9k/rbadeconomics_endorses_the_universal_fillibuster/
 
-Please contact the moderators for any further questions:
+Please contact the parliamentarians for any further questions:
 https://www.reddit.com/message/compose?to=%2Fr%2Fbadeconomics
 """
 
-PM_GRANTED_SUBJECT = "Won't you be my neighbor?"
-PM_GRANTED_TEXT = """Hi {user},
+PM_GRANTED_SUBJECT = "The Chair recognizes the Honorable {user}"
+PM_GRANTED_TEXT = """Senator {user},
 
 We noticed that you have recently posted a RI, a policy proposal or a good
-contribution in the Reddit Economics Network, thereby demonstrating your
-potential to be a good neighbor.
+contribution in the Reddit Economics Network, thereby pleasing the leadership.
 
-As a result, we have decided to grant you a zoning permit valid for a duration
-of 6 months. You are now allowed to post in the Mixed Use Development Sticky.
+As a result, we have decided to grant you the floor for a duration
+of 6 months. You are now allowed to post in the Senate Discussion Sticky
 
-Your permit will expire on the {expires}.
-You can renew this permit at any time by posting another good contribution in
+Your time will expire on the {expires}.
+You can renew this time on the floor at any time by posting another good contribution in
 the Reddit Economics Network, valid for another 6 months starting from the date
 of your post.
 
-Please remember however that in order to preserve the character of our
-neighborhood, your zoning permit can be revoked at any time if you were to
-express incorrect opinions on the REN or elsewhere.
+Please remember however that the chair reserves the right to revoke your time can be revoked at any time if you were to behave in an unparliamentary manner, such as inciting insurrection, attempting secession, or expressing incorrect opinions on the REN or elsewhere.
 
-You can find more details about our Exclusionary Zoning policy here:
-https://www.reddit.com/r/badeconomics/comments/cccui4/exclusionary_zoning_is_coming_to_rbadeconomics/
+You can find more details about our parliamentary procedure here:
+https://www.reddit.com/r/badeconomics/comments/mtks9k/rbadeconomics_endorses_the_universal_fillibuster/
 
-Please contact the moderators for any further questions:
+Please contact the parliamentarians for any further questions:
 https://www.reddit.com/message/compose?to=%2Fr%2Fbadeconomics
 """
 
