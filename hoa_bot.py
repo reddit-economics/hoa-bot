@@ -14,7 +14,8 @@ PM_EXPIRE_TEXT = """The Honorable {user},
 The chair has noticed that you haven't posted a RI, a policy proposal or a good
 contribution in the Reddit Economics Network in the last 6 months.
 
-As a result, you must yield your remaining time, and let debate continue amongst more established members of this chamber.
+As a result, you must yield your remaining time, and let debate continue amongst
+more established members of this chamber.
 
 You can find more details about parliamentary procedure here:
 https://www.reddit.com/r/badeconomics/comments/mtks9k/rbadeconomics_endorses_the_universal_fillibuster/
@@ -33,11 +34,14 @@ As a result, we have decided to grant you the floor for a duration
 of 6 months. You are now allowed to post in the Senate Discussion Sticky
 
 Your time will expire on the {expires}.
-You can renew this time on the floor at any time by posting another good contribution in
-the Reddit Economics Network, valid for another 6 months starting from the date
-of your post.
+You can renew this time on the floor at any time by posting another good
+contribution in the Reddit Economics Network, valid for another 6 months
+starting from the date of your post.
 
-Please remember however that the chair reserves the right to revoke your time can be revoked at any time if you were to behave in an unparliamentary manner, such as inciting insurrection, attempting secession, or expressing incorrect opinions on the REN or elsewhere.
+Please remember however that the chair reserves the right to revoke your time
+can be revoked at any time if you were to behave in an unparliamentary manner,
+such as inciting insurrection, attempting secession, or expressing incorrect
+opinions on the REN or elsewhere.
 
 You can find more details about our parliamentary procedure here:
 https://www.reddit.com/r/badeconomics/comments/mtks9k/rbadeconomics_endorses_the_universal_fillibuster/
@@ -56,7 +60,8 @@ def main():
         client_secret=config['reddit']['client_secret'],
         username=config['reddit']['username'],
         password=config['reddit']['password'],
-        user_agent='BadEconomics Zoning Bot'
+        user_agent='BadEconomics Zoning Bot',
+        ratelimit_seconds=120,
     )
 
     badeconomics = reddit.subreddit('badeconomics')
@@ -83,7 +88,7 @@ def main():
                  or zoning['contributors'][author] < submission_date)):
             to_update[author] = submission_date
             zoning['contributors'].update(to_update)
-            print('Marked {} for a permit'.format(author))
+            print('Marked {} for a permit ({} days)'.format(author, delta))
 
     # Update contributor list from wiki
     # Uncomment when ready
