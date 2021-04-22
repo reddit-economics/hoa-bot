@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import configparser
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import copy
 import praw
 import yaml
@@ -88,10 +88,30 @@ def main():
                  or zoning['contributors'][author] < submission_date)):
             to_update[author] = submission_date
             zoning['contributors'].update(to_update)
-            print('Marked {} for a permit ({} days)'.format(author, delta))
+            print('[RI] Marked {} for a permit'.format(author))
+
+    # Check for !whitelist commands in modmail
+    for conv in badeconomics.modmail.conversations(limit=25):
+        participant = str(conv.participant)
+        for message in conv.messages:
+            command_date = datetime.fromisoformat(message.date).date()
+            delta = (date.today() - command_date).days
+            if (
+                '!whitelist' in message.body_markdown
+                and message.author in badeconomics.moderator()
+                and delta <= PERMIT_LENGTH
+                and (participant not in zoning['contributors']
+                     or zoning['contributors'][participant] < command_date)
+            ):
+                to_update[participant] = command_date
+                zoning['contributors'].update(to_update)
+                print('[MODMAIL] Marked {} for a permit'.format(participant))
+                conv.reply(
+                    "Confirmed! Granted cloture to {} for {} days."
+                    .format(participant, PERMIT_LENGTH)
+                )
 
     # Update contributor list from wiki
-    # Uncomment when ready
     for contributor, date_start in zoning['contributors'].items():
         user = reddit.redditor(contributor)
         delta = (date.today() - date_start).days
@@ -121,10 +141,17 @@ def main():
                         PM_GRANTED_TEXT.format(user=contributor,
                                                expires=expires))
 
+    # Add contributors
     for contributor in zoning['whitelist']:
         user = reddit.redditor(contributor)
         if contributor not in sub_contributors:
             badeconomics.contributor.add(user)
+
+    # Archive annoying contributor notifications in modmail
+    for conv in badeconomics.modmail.conversations(limit=25):
+        if conv.subject == 'you are an approved user':
+            conv.archive()
+
 
     # Reload + atomic edit
     wiki_zoning = badeconomics.wiki['zoning_whitelist']
