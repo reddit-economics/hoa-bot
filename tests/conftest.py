@@ -50,6 +50,7 @@ class TestRedditor:
             return True
         if hasattr(value, 'username') and self.username == value.username:
             return True
+        return False
 
 
 class TestRedditorFactory:
