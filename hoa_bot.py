@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 import copy
 import praw
 import yaml
+import logging
 
 PERMIT_LENGTH = 180
 
@@ -14,8 +15,8 @@ PM_EXPIRE_TEXT = """The Honorable {user},
 The chair has noticed that you haven't posted a RI, a policy proposal or a good
 contribution in the Reddit Economics Network in the last 6 months.
 
-As a result, you must yield your remaining time, and let debate continue amongst
-more established members of this chamber.
+As a result, you must yield your remaining time, and let debate continue
+amongst more established members of this chamber.
 
 You can find more details about parliamentary procedure here:
 https://www.reddit.com/r/badeconomics/comments/mtks9k/rbadeconomics_endorses_the_universal_fillibuster/
@@ -51,117 +52,194 @@ https://www.reddit.com/message/compose?to=%2Fr%2Fbadeconomics
 """
 
 
-def main():
-    config = configparser.ConfigParser()
-    config.read('settings.conf')
+class WikiAllowlist:
+    PERMIT_KEY = 'contributors'
+    PERMALLOWED_KEY = 'whitelist'
 
-    reddit = praw.Reddit(
-        client_id=config['reddit']['client_id'],
-        client_secret=config['reddit']['client_secret'],
-        username=config['reddit']['username'],
-        password=config['reddit']['password'],
-        user_agent='BadEconomics Zoning Bot',
-        ratelimit_seconds=120,
-    )
+    def __init__(self, subreddit):
+        self.subreddit = subreddit
+        self.allowlist = None
+        self.to_update = {}
+        self.to_delete = []
 
-    badeconomics = reddit.subreddit('badeconomics')
+        self.reload()
 
-    wiki_zoning = badeconomics.wiki['zoning_whitelist']
-    zoning = yaml.safe_load(wiki_zoning.content_md)
-    sub_contributors = list(map(str, badeconomics.contributor()))
+    def reload(self):
+        wiki_page = self.subreddit.wiki['zoning_whitelist']
+        self.allowlist = yaml.safe_load(wiki_page.content_md)
 
-    # We defer the deletions/additions to avoid locking the wiki
-    to_delete = []
-    to_update = {}
+    def commit(self):
+        """Commit the pending changes to the allowlist"""
+        # Reload to avoid race conditions between edits
+        self.reload()
 
-    # Automatically add people with submissions marked as sufficient
-    for submission in badeconomics.new(limit=50):
-        if not submission.author:  # deleted users
-            continue
-        author = str(submission.author)
-        submission_date = date.fromtimestamp(submission.created_utc)
-        delta = (date.today() - submission_date).days
+        allowlist_new = copy.deepcopy(self.allowlist)
+        allowlist_new[self.PERMIT_KEY].update(self.to_update)
+        for u in self.to_delete:
+            allowlist_new[self.PERMIT_KEY].pop(u)
+        if self.allowlist != allowlist_new:
+            wiki_page = self.subreddit.wiki['zoning_whitelist']
+            wiki_page.edit(yaml.safe_dump(allowlist_new))
 
-        if (submission.link_flair_text == 'Sufficient'
-            and delta <= PERMIT_LENGTH
-            and (author not in zoning['contributors']
-                 or zoning['contributors'][author] < submission_date)):
-            to_update[author] = submission_date
-            zoning['contributors'].update(to_update)
-            print('[RI] Marked {} for a permit'.format(author))
+        self.reload()
 
-    # Check for !whitelist commands in modmail
-    for conv in badeconomics.modmail.conversations(limit=25):
-        participant = str(conv.participant)
-        for message in conv.messages:
-            command_date = datetime.fromisoformat(message.date).date()
-            delta = (date.today() - command_date).days
-            if (
-                '!whitelist' in message.body_markdown
-                and message.author in badeconomics.moderator()
-                and delta <= PERMIT_LENGTH
-                and (participant not in zoning['contributors']
-                     or zoning['contributors'][participant] < command_date)
-            ):
-                to_update[participant] = command_date
-                zoning['contributors'].update(to_update)
-                print('[MODMAIL] Marked {} for a permit'.format(participant))
-                conv.reply(
-                    "Confirmed! Granted cloture to {} for {} days."
-                    .format(participant, PERMIT_LENGTH)
-                )
-
-    # Update contributor list from wiki
-    for contributor, date_start in zoning['contributors'].items():
-        user = reddit.redditor(contributor)
-        delta = (date.today() - date_start).days
-
-        if contributor not in zoning['whitelist'] and delta > PERMIT_LENGTH:
-            print("Removing /u/{}'s expired permit ({} days)."
-                  .format(contributor, delta))
-            if contributor in sub_contributors:
-                badeconomics.contributor.remove(user)
-                user.message(
-                    PM_EXPIRE_SUBJECT.format(user=contributor),
-                    PM_EXPIRE_TEXT.format(user=contributor))
-            to_delete.append(contributor)
+    def update(self, user: str, start_date: date):
+        if (
+            (date.today() - start_date).days <= PERMIT_LENGTH
+            and (user not in self.permits()
+                 or self.permits()[user] < start_date)
+        ):
+            self.to_update[user] = start_date
+            self.permits().update(self.to_update)
+            return True
         else:
-            if contributor not in sub_contributors:
+            return False
+
+    def delete(self, user: str):
+        self.permits().pop(user)
+        self.to_delete.append(user)
+
+    def permits(self):
+        return self.allowlist[self.PERMIT_KEY]
+
+    def permallowed(self):
+        return self.allowlist[self.PERMALLOWED_KEY]
+
+    def __getitem__(self, user: str):
+        return self.permits()[user]
+
+
+class WallBot:
+    def __init__(self, config):
+        self.config = config
+        self.reddit = praw.Reddit(
+            client_id=config['reddit']['client_id'],
+            client_secret=config['reddit']['client_secret'],
+            username=config['reddit']['username'],
+            password=config['reddit']['password'],
+            user_agent='BadEconomics Zoning Bot',
+            ratelimit_seconds=120,
+        )
+        self.subreddit = self.reddit.subreddit('badeconomics')
+        self.allowlist = WikiAllowlist(self.subreddit)
+
+    def run(self):
+        self.allow_from_RIs()
+        self.allow_from_modmail()
+        self.remove_expired_permits()
+        self.grant_permits()
+        self.archive_modmail_notifs()
+        self.allowlist.commit()
+
+    def allow_from_RIs(self, backlog=50):
+        """Automatically add people with submissions marked as sufficient"""
+
+        for submission in self.subreddit.new(limit=backlog):
+            if not submission.author:  # deleted users
+                continue
+            author = str(submission.author)
+            submission_date = date.fromtimestamp(submission.created_utc)
+            if submission.link_flair_text == 'Sufficient':
+                added = self.allowlist.update(author, submission_date)
+                if added:
+                    logging.info("[RI] Marked %s for a permit", author)
+
+    def allow_from_modmail(self, backlog=25):
+        """Automatically add people with submissions marked as sufficient"""
+
+        for conv in self.subreddit.modmail.conversations(limit=backlog):
+            if not conv.participant:  # deleted users
+                continue
+
+            participant = str(conv.participant)
+            for message in conv.messages:
+                if (
+                    '!allow' in message.body_markdown
+                    and message.author in self.subreddit.moderator()
+                ):
+                    command_date = datetime.fromisoformat(message.date).date()
+                    added = self.allowlist.update(participant, command_date)
+                    if added:
+                        logging.info(
+                            "[MODMAIL] Marked %s for a permit", participant
+                        )
+                        conv.reply(
+                            "Confirmed! Granted cloture to {} for {} days."
+                            .format(participant, PERMIT_LENGTH)
+                        )
+
+    def grant_permits(self):
+        """
+        Look at the allowlist for new permits, add users to the contributor
+        list and notify them that they have been added.
+        """
+
+        for user_str, date_start in self.allowlist.permits().items():
+            user = self.reddit.redditor(user_str)
+            if user not in self.subreddit.contributor():
                 try:
-                    badeconomics.contributor.add(user)
+                    self.subreddit.contributor.add(user)
                 except Exception:  # banned
                     continue
 
-                if contributor not in zoning['whitelist']:
-                    print("Granting /u/{} a permit."
-                          .format(contributor, delta))
-                    expires = date.today() + timedelta(PERMIT_LENGTH)
+                # Don't spam permallowed users with permit PMs
+                if user_str in self.allowlist.permallowed():
+                    continue
+
+                logging.info("Granting /u/%s a permit.", user_str)
+
+                expires = date_start + timedelta(PERMIT_LENGTH)
+                user.message(
+                    PM_GRANTED_SUBJECT.format(user=user_str),
+                    PM_GRANTED_TEXT.format(user=user_str, expires=expires)
+                )
+
+        # Ensure that permallowed users are always contributors
+        for contributor in self.allowlist.permallowed():
+            user = self.reddit.redditor(contributor)
+            if contributor not in self.subreddit.contributor():
+                self.subreddit.contributor.add(user)
+
+    def remove_expired_permits(self):
+        """
+        Look at the allowlist for expired permits, delete users from the
+        allowlist, remove them from the contributor list and notify them that
+        they have been removed.
+        """
+
+        for user_str, date_start in self.allowlist.permits().copy().items():
+            user = self.reddit.redditor(user_str)
+            if user_str in self.allowlist.permallowed():
+                continue
+
+            delta = (date.today() - date_start).days
+            if delta > PERMIT_LENGTH:
+                logging.info(
+                    "Removing /u/%s's expired permit (%s days).",
+                    user_str,
+                    delta,
+                )
+                self.allowlist.delete(user_str)
+                if user in self.subreddit.contributor():
+                    self.subreddit.contributor.remove(user)
                     user.message(
-                        PM_GRANTED_SUBJECT.format(user=contributor),
-                        PM_GRANTED_TEXT.format(user=contributor,
-                                               expires=expires))
+                        PM_EXPIRE_SUBJECT.format(user=user_str),
+                        PM_EXPIRE_TEXT.format(user=user_str)
+                    )
 
-    # Add contributors
-    for contributor in zoning['whitelist']:
-        user = reddit.redditor(contributor)
-        if contributor not in sub_contributors:
-            badeconomics.contributor.add(user)
+    def archive_modmail_notifs(self, backlog=25):
+        """Archive annoying contributor notifications in modmail"""
 
-    # Archive annoying contributor notifications in modmail
-    for conv in badeconomics.modmail.conversations(limit=25):
-        if conv.subject == 'you are an approved user':
-            conv.archive()
+        for conv in self.subreddit.modmail.conversations(limit=backlog):
+            if conv.subject == 'you are an approved user':
+                conv.archive()
 
 
-    # Reload + atomic edit
-    wiki_zoning = badeconomics.wiki['zoning_whitelist']
-    zoning = yaml.safe_load(wiki_zoning.content_md)
-    zoning_new = copy.deepcopy(zoning)
-    zoning_new['contributors'].update(to_update)
-    for u in to_delete:
-        zoning_new['contributors'].pop(u)
-    if zoning != zoning_new:
-        wiki_zoning.edit(yaml.safe_dump(zoning_new))
+def main():
+    config = configparser.ConfigParser()
+    config.read('settings.conf')
+    bot = WallBot(config)
+    bot.run()
 
 
 if __name__ == '__main__':
